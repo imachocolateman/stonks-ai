@@ -1,7 +1,6 @@
 """Main entry point for stonks-ai application."""
 
 import sys
-from pathlib import Path
 
 import click
 from rich.console import Console
@@ -119,7 +118,7 @@ def info():
     data_exists = settings.data_dir.exists()
     models_exists = settings.models_dir.exists()
 
-    console.print(f"Version: [green]0.1.0[/green]")
+    console.print("Version: [green]0.1.0[/green]")
     console.print(f"Python: [green]{sys.version.split()[0]}[/green]")
     console.print(f"Environment: [green]{settings.environment}[/green]\n")
 

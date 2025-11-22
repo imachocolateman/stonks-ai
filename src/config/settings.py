@@ -4,54 +4,39 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from dotenv import load_dotenv
+
+# Load .env file
+load_dotenv()
 
 
-class Settings(BaseSettings):
+class Settings:
     """Application settings loaded from environment variables."""
 
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-        extra="ignore",
-    )
+    def __init__(self):
+        # Moomoo API Configuration
+        self.moomoo_api_key: str = os.getenv("MOOMOO_API_KEY", "")
+        self.moomoo_api_secret: str = os.getenv("MOOMOO_API_SECRET", "")
 
-    # Moomoo API Configuration
-    moomoo_api_key: str = Field(default="", description="Moomoo API key")
-    moomoo_api_secret: str = Field(default="", description="Moomoo API secret")
+        # News API Configuration
+        self.news_api_key: Optional[str] = os.getenv("NEWS_API_KEY")
 
-    # News API Configuration
-    news_api_key: Optional[str] = Field(default=None, description="News API key")
+        # Database Configuration
+        self.database_url: str = os.getenv("DATABASE_URL", "sqlite:///stonks.db")
 
-    # Database Configuration
-    database_url: str = Field(
-        default="sqlite:///stonks.db", description="Database connection URL"
-    )
+        # Application Configuration
+        self.environment: str = os.getenv("ENVIRONMENT", "development")
+        self.log_level: str = os.getenv("LOG_LEVEL", "INFO")
 
-    # Application Configuration
-    environment: str = Field(default="development", description="Environment name")
-    log_level: str = Field(default="INFO", description="Logging level")
+        # Paths
+        self.data_dir: Path = Path("data")
+        self.models_dir: Path = Path("models")
 
-    # Paths
-    data_dir: Path = Field(default=Path("data"), description="Data storage directory")
-    models_dir: Path = Field(
-        default=Path("models"), description="Model storage directory"
-    )
+        # Analysis Configuration
+        self.default_tickers: list[str] = ["AAPL", "GOOGL", "MSFT", "TSLA"]
+        self.refresh_interval: int = int(os.getenv("REFRESH_INTERVAL", "300"))
 
-    # Analysis Configuration
-    default_tickers: list[str] = Field(
-        default_factory=lambda: ["AAPL", "GOOGL", "MSFT", "TSLA"],
-        description="Default stock tickers to monitor",
-    )
-    refresh_interval: int = Field(
-        default=300, description="Data refresh interval in seconds"
-    )
-
-    def __init__(self, **kwargs):
-        """Initialize settings and create necessary directories."""
-        super().__init__(**kwargs)
+        # Create necessary directories
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.models_dir.mkdir(parents=True, exist_ok=True)
 
