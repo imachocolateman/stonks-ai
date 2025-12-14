@@ -1,6 +1,6 @@
 """Technical analysis and trade suggestion modules."""
 
-from src.analysis.risk import RiskCalculator
+from src.analysis import risk
 from src.analysis.suggester import TradeSuggester
 
-__all__ = ["RiskCalculator", "TradeSuggester"]
+__all__ = ["risk", "TradeSuggester"]

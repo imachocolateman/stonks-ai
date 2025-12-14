@@ -1,10 +1,10 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code when working with this repository.
 
 ## Project Overview
 
-Personal stock market analysis bot using AI for trading insights. Currently in early development with placeholder modules.
+SPX 0DTE options trading bot with TradingView webhook integration. Receives signals, generates trade suggestions, and executes via Moomoo broker API.
 
 ## Development Commands
 
@@ -14,85 +14,174 @@ uv sync                    # Install dependencies
 cp .env.example .env       # Configure environment
 
 # Run
-uv run main.py                    # Root entry point (placeholder)
-uv run python -m src.main         # CLI application (Click-based)
+uv run python -m src.main serve        # Start webhook server
+uv run python -m src.main session      # Show trading session status
+uv run python -m src.main test-moomoo  # Test Moomoo connection
+uv run python -m src.main info         # System info
+uv run python -m src.main config       # View config
 
 # Code Quality
-uv run ruff check --fix .         # Lint and auto-fix
-uv run ruff format .              # Format code
-
-# CLI Commands
-uv run python -m src.main info                  # System info
-uv run python -m src.main config                # View config
-uv run python -m src.main analyze -t AAPL TSLA  # Analyze stocks (TODO)
-uv run python -m src.main monitor -t AAPL       # Monitor stock (TODO)
-uv run python -m src.main sentiment -t AAPL     # Sentiment analysis (TODO)
+uv run ruff check --fix .              # Lint and auto-fix
+uv run ruff format .                   # Format code
 ```
 
 ## Architecture
 
-### Configuration System (Singleton Pattern)
-- `src/config/settings.py` - Simple settings loaded from `.env` via python-dotenv
-- Access via `get_settings()` singleton
-- Auto-creates `data/` and `models/` directories on init
-- Default tickers: AAPL, GOOGL, MSFT, TSLA
-
-### Logging System (Dual Output)
-- `src/utils/logger.py` - Loguru-based logging
-- Console output: Colorized, respects `LOG_LEVEL` env var
-- File outputs:
-  - `logs/stonks-ai.log` - All logs (10MB rotation, 7 day retention)
-  - `logs/errors.log` - Errors only (10MB rotation, 30 day retention)
-- Access via `setup_logger()` (init) and `get_logger(__name__)` (usage)
-
-### CLI Structure (Click-based)
-- `src/main.py` - Entry point with commands: analyze, config, monitor, sentiment, info
-- Uses Rich library for formatted console output (tables, colors)
-- All commands are stubs awaiting implementation
+### Signal Flow
+```
+TradingView Alert → Webhook → SignalProcessor → TradeSuggester → OrderManager → MoomooExecutor
+```
 
 ### Module Structure
 ```
 src/
-├── config/      ✓ Settings management (python-dotenv + os.getenv)
-├── utils/       ✓ Logger setup (Loguru)
-├── main.py      ✓ CLI interface (Click + Rich)
-├── api/         ⚠️ Empty - API integrations planned
-├── data/        ⚠️ Empty - Data fetching planned
-├── analysis/    ⚠️ Empty - Technical analysis planned
-├── sentiment/   ⚠️ Empty - News sentiment planned
-└── models/      ⚠️ Empty - ML models planned
+├── api/
+│   ├── webhook.py         # FastAPI routes for webhooks + order/position management
+│   └── signals.py         # SignalProcessor - orchestrates suggestion + execution
+├── analysis/
+│   ├── suggester.py       # TradeSuggester - generates trade suggestions
+│   └── risk.py            # RiskCalculator - position sizing, R:R, confidence
+├── config/
+│   └── settings.py        # Settings singleton from .env
+├── data/
+│   └── moomoo_client.py   # Moomoo OpenD client + yfinance for SPX price
+├── execution/
+│   ├── order_types.py     # Order, Fill, Position Pydantic models
+│   ├── order_manager.py   # Order lifecycle + manual approval flow
+│   ├── executor.py        # Moomoo trade API wrapper
+│   └── position_tracker.py # Position monitoring + auto-exit at 3:45 PM
+├── models/
+│   ├── signals.py         # TradingViewSignal model
+│   ├── options.py         # OptionContract, Greeks, OptionsChain
+│   └── suggestions.py     # TradeSuggestion, TradeType, Confidence
+├── utils/
+│   ├── logger.py          # Loguru setup
+│   └── time_utils.py      # Session phases (prime time, danger zone, etc.)
+├── server.py              # FastAPI app with lifespan management
+└── main.py                # CLI entry point (Click)
 ```
+
+### Key Components
+
+**SignalProcessor** (`src/api/signals.py`)
+- Validates session timing
+- Fetches SPX price + options chain
+- Generates suggestion via TradeSuggester
+- Creates order via OrderManager (if execution enabled)
+
+**OrderManager** (`src/execution/order_manager.py`)
+- Manual approval flow: Order created → PENDING_APPROVAL → user approves → SUBMITTED → FILLED
+- Position limits (max 2 concurrent)
+- Tracks orders and positions in memory
+
+**PositionTracker** (`src/execution/position_tracker.py`)
+- Background monitoring task
+- Auto-closes all positions at 3:45 PM (danger zone)
+- Daily P&L tracking
+
+**MoomooExecutor** (`src/execution/executor.py`)
+- Wraps Moomoo OpenSecTradeContext
+- Paper trading (SIMULATE) or live (REAL)
+- Submit, cancel, query orders
+
+## API Endpoints
+
+All under `/webhook/` prefix:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/signal` | POST | Receive TradingView alert |
+| `/orders` | GET | List all orders |
+| `/orders/{id}/approve` | POST | Approve pending order |
+| `/orders/{id}/reject` | POST | Reject pending order |
+| `/positions` | GET | List all positions |
+| `/positions/{id}/close` | POST | Close position at market |
+| `/summary` | GET | Daily P&L summary |
+| `/session` | GET | Current session phase |
+| `/health` | GET | Health check |
 
 ## Environment Variables
 
-Required:
-- `MOOMOO_API_KEY` - Moomoo trading API key
-- `MOOMOO_API_SECRET` - Moomoo API secret
+### Required
+```bash
+WEBHOOK_PASSPHRASE=your_secret    # TradingView webhook auth
+```
 
-Optional:
-- `NEWS_API_KEY` - News API for sentiment analysis
-- `DATABASE_URL` - Database connection (default: sqlite:///stonks.db)
-- `ENVIRONMENT` - development/production (default: development)
-- `LOG_LEVEL` - DEBUG/INFO/WARNING/ERROR (default: INFO)
+### Moomoo Connection
+```bash
+MOOMOO_HOST=127.0.0.1             # OpenD host
+MOOMOO_PORT=11111                 # OpenD port
+MOOMOO_TRADING_ENV=SIMULATE       # SIMULATE or REAL
+```
+
+### Trading Settings
+```bash
+ACCOUNT_SIZE=25000                # Account size for position sizing
+MAX_RISK_PER_TRADE=0.02           # 2% max risk per trade
+MAX_DAILY_RISK=0.03               # 3% max daily loss
+DEFAULT_TARGET_DELTA=0.25         # Target delta for strike selection
+```
+
+### Execution Settings
+```bash
+EXECUTION_ENABLED=false           # Enable order creation from signals
+AUTO_EXECUTE=false                # Auto-execute (skip manual approval)
+MAX_POSITIONS=2                   # Max concurrent positions
+AUTO_EXIT_ENABLED=true            # Auto-close at 3:45 PM
+```
+
+### Optional
+```bash
+NEWS_API_KEY=                     # For future sentiment analysis
+DATABASE_URL=sqlite:///stonks.db  # For future persistence
+ENVIRONMENT=development           # development or production
+LOG_LEVEL=INFO                    # DEBUG/INFO/WARNING/ERROR
+```
+
+## Session Timing (EST)
+
+| Phase | Time | Trading |
+|-------|------|---------|
+| PRE_MARKET | < 9:30 | No |
+| PRIME_TIME | 9:30-11:00 | Yes (best) |
+| LUNCH_DOLDRUMS | 11:00-13:30 | Yes (low vol) |
+| MID_SESSION | 13:30-15:30 | Yes |
+| DANGER_ZONE | 15:30-16:00 | No (auto-exit) |
+| AFTER_HOURS | > 16:00 | No |
+
+## Signal Types Supported
+
+- RSI_OVERSOLD_LONG
+- RSI_OVERBOUGHT_SHORT
+- RUBBERBAND_LONG / RUBBERBAND_SHORT
+- SHOOTING_STAR
+- V_DIP_LONG
+- PIVOT_SUPPORT
+- VWAP_BOUNCE
+
+## Order Flow (Manual Approval Mode)
+
+1. Signal received via webhook
+2. SignalProcessor generates TradeSuggestion
+3. OrderManager creates Order (status: PENDING_APPROVAL)
+4. Console shows approval prompt
+5. User calls `POST /webhook/orders/{id}/approve`
+6. Order submitted to Moomoo → FILLED
+7. Position created and tracked
+8. Auto-exit at 3:45 PM if still open
 
 ## Key Design Decisions
 
-1. **Not a package** - This is a personal script-based project, not meant for distribution
-2. **Simplified structure** - Removed test infrastructure, docs, and CI/CD for personal use
-3. **uv for dependencies** - Uses `uv` instead of pip/poetry for faster operations
-4. **Dual entry points** - `main.py` (root) is placeholder; `src/main.py` is real CLI
-5. **Configuration precedence** - `.env` file → environment variables → defaults
+1. **Manual approval by default** - No auto-execution without explicit approval
+2. **In-memory state** - Orders/positions stored in memory (persistence in Phase 2)
+3. **Moomoo for execution** - Uses OpenSecTradeContext for paper/live trading
+4. **yfinance for SPX price** - Free, doesn't require Moomoo connection
+5. **Session-aware** - Blocks trades in danger zone, warns during lunch
 
-## Current State
+## Future Phases
 
-Most modules are empty stubs. Working components:
-- Configuration loading and validation
-- Logging setup with file rotation
-- CLI command structure and help text
-- Directory auto-creation (data/, models/, logs/)
-
-Next implementation priorities (all marked TODO):
-- Data fetching module (Moomoo API integration)
-- Analysis module (technical indicators)
-- Sentiment module (news analysis)
-- Models module (ML predictions)
+- **Phase 2**: Trade journal with SQLite persistence
+- **Phase 3**: VIX integration for market context
+- **Phase 4**: Strategy refactor (V-dip, Rubberband classes)
+- **Phase 5**: Backtesting with VectorBT
+- **Phase 6**: GEX/DIX, sentiment, event-driven architecture

@@ -32,7 +32,19 @@ class Settings:
         self.account_size: float = float(os.getenv("ACCOUNT_SIZE", "25000"))
         self.max_risk_per_trade: float = float(os.getenv("MAX_RISK_PER_TRADE", "0.02"))
         self.max_daily_risk: float = float(os.getenv("MAX_DAILY_RISK", "0.03"))
-        self.default_target_delta: float = float(os.getenv("DEFAULT_TARGET_DELTA", "0.25"))
+        self.default_target_delta: float = float(
+            os.getenv("DEFAULT_TARGET_DELTA", "0.25")
+        )
+
+        # Execution Configuration
+        self.execution_enabled: bool = (
+            os.getenv("EXECUTION_ENABLED", "false").lower() == "true"
+        )
+        self.auto_execute: bool = os.getenv("AUTO_EXECUTE", "false").lower() == "true"
+        self.max_positions: int = int(os.getenv("MAX_POSITIONS", "2"))
+        self.auto_exit_enabled: bool = (
+            os.getenv("AUTO_EXIT_ENABLED", "true").lower() == "true"
+        )
 
         # Session Timing (EST)
         self.market_open: str = "09:30"

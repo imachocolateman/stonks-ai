@@ -146,7 +146,9 @@ def info():
 
 @cli.command()
 @click.option("--host", "-h", default=None, help="Host to bind (default from env)")
-@click.option("--port", "-p", default=None, type=int, help="Port to bind (default from env)")
+@click.option(
+    "--port", "-p", default=None, type=int, help="Port to bind (default from env)"
+)
 @click.option("--reload", is_flag=True, help="Enable auto-reload for development")
 def serve(host, port, reload):
     """Start the webhook server for TradingView alerts."""
@@ -164,7 +166,9 @@ def serve(host, port, reload):
     console.print(f"  Host: [green]{host}[/green]")
     console.print(f"  Port: [green]{port}[/green]")
     console.print(f"  Trading Env: [green]{settings.moomoo_trading_env}[/green]")
-    console.print(f"  Passphrase: [green]{'Configured' if settings.webhook_passphrase else 'NOT SET'}[/green]")
+    console.print(
+        f"  Passphrase: [green]{'Configured' if settings.webhook_passphrase else 'NOT SET'}[/green]"
+    )
     console.print(f"\n  Webhook URL: [cyan]http://{host}:{port}/webhook/signal[/cyan]")
     console.print("[dim]Press Ctrl+C to stop[/dim]\n")
 
@@ -194,18 +198,20 @@ def test_moomoo():
     # SPX Price (via yfinance)
     console.print("[bold]SPX Index (yfinance):[/bold]")
     if result["spx_price"]:
-        console.print(f"  [green]✓[/green] SPX Price: [green]${result['spx_price']:,.2f}[/green]")
+        console.print(
+            f"  [green]✓[/green] SPX Price: [green]${result['spx_price']:,.2f}[/green]"
+        )
     else:
-        console.print(f"  [red]✗[/red] Could not fetch SPX price")
+        console.print("  [red]✗[/red] Could not fetch SPX price")
 
     # Moomoo (for options)
     console.print("\n[bold]Moomoo OpenD (options):[/bold]")
     console.print(f"  Host: {settings.moomoo_host}:{settings.moomoo_port}")
     console.print(f"  Trading Env: {settings.moomoo_trading_env}")
     if result["moomoo_connected"]:
-        console.print(f"  [green]✓ Connected[/green]")
+        console.print("  [green]✓ Connected[/green]")
     else:
-        console.print(f"  [red]✗ Not connected[/red]")
+        console.print("  [red]✗ Not connected[/red]")
         console.print("\n[dim]Make sure Moomoo OpenD is running[/dim]")
 
     if result["error"]:
@@ -237,11 +243,20 @@ def session_status():
     table.add_column("Value")
 
     table.add_row("Current Time", f"[bold]{info['current_time_et']}[/bold]")
-    table.add_row("Session Phase", f"[{color}]{info['session_phase'].upper()}[/{color}]")
-    table.add_row("Trading Allowed", "[green]Yes[/green]" if info["trading_allowed"] else f"[red]No - {info['reason']}[/red]")
+    table.add_row(
+        "Session Phase", f"[{color}]{info['session_phase'].upper()}[/{color}]"
+    )
+    table.add_row(
+        "Trading Allowed",
+        "[green]Yes[/green]"
+        if info["trading_allowed"]
+        else f"[red]No - {info['reason']}[/red]",
+    )
     table.add_row("Minutes to Exit", str(info["minutes_to_exit_deadline"]))
     table.add_row("Minutes to Close", str(info["minutes_to_close"]))
-    table.add_row("0DTE Day", "[green]Yes[/green]" if info["is_0dte_day"] else "[dim]No[/dim]")
+    table.add_row(
+        "0DTE Day", "[green]Yes[/green]" if info["is_0dte_day"] else "[dim]No[/dim]"
+    )
     table.add_row("Day", info["weekday"])
 
     from src.utils.time_utils import SessionPhase

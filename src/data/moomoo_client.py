@@ -9,7 +9,6 @@ from moomoo import (
     OptionCondType,
     OptionType as MooOptionType,
     OpenQuoteContext,
-    RET_ERROR,
     RET_OK,
 )
 
@@ -85,7 +84,7 @@ class MoomooClient:
         self,
         period: str = "1mo",
         interval: str = "1d",
-    ) -> "pd.DataFrame | None":
+    ) -> Any:
         """
         Get SPX historical data for backtesting.
 
@@ -97,17 +96,48 @@ class MoomooClient:
             DataFrame with OHLCV data or None
         """
         try:
-            import pandas as pd
-
             ticker = yf.Ticker(self.SPX_YF_SYMBOL)
             hist = ticker.history(period=period, interval=interval)
             if not hist.empty:
-                self.logger.info(f"Fetched {len(hist)} bars of SPX history ({period}/{interval})")
+                self.logger.info(
+                    f"Fetched {len(hist)} bars of SPX history ({period}/{interval})"
+                )
                 return hist
             return None
         except Exception as e:
             self.logger.error(f"Error getting SPX history: {e}")
             return None
+
+    def get_spx_ohlcv(
+        self,
+        period: str = "1d",
+        interval: str = "1m",
+    ) -> dict | None:
+        """
+        Get SPX OHLCV data as numpy arrays for TA-Lib calculations.
+
+        Args:
+            period: Data period (default "1d" for intraday)
+            interval: Data interval (default "1m" for 1-minute bars)
+
+        Returns:
+            Dict with numpy arrays: open, high, low, close, volume
+            Or None if failed
+        """
+        import numpy as np
+
+        hist = self.get_spx_history(period=period, interval=interval)
+        if hist is None or hist.empty:
+            return None
+
+        return {
+            "open": hist["Open"].values.astype(np.float64),
+            "high": hist["High"].values.astype(np.float64),
+            "low": hist["Low"].values.astype(np.float64),
+            "close": hist["Close"].values.astype(np.float64),
+            "volume": hist["Volume"].values.astype(np.float64),
+            "timestamp": hist.index,
+        }
 
     def get_options_chain(
         self,
@@ -225,7 +255,12 @@ class MoomooClient:
             greeks = None
             if all(
                 col in row.index
-                for col in ["option_delta", "option_gamma", "option_theta", "option_vega"]
+                for col in [
+                    "option_delta",
+                    "option_gamma",
+                    "option_theta",
+                    "option_vega",
+                ]
             ):
                 greeks = Greeks(
                     delta=float(row.get("option_delta", 0)),
@@ -246,7 +281,9 @@ class MoomooClient:
                 ask=float(row.get("ask_price", 0)) if row.get("ask_price") else None,
                 last=float(row.get("last_price", 0)) if row.get("last_price") else None,
                 volume=int(row.get("volume", 0)) if row.get("volume") else None,
-                open_interest=int(row.get("open_interest", 0)) if row.get("open_interest") else None,
+                open_interest=int(row.get("open_interest", 0))
+                if row.get("open_interest")
+                else None,
             )
         except Exception as e:
             self.logger.debug(f"Failed to parse option contract: {e}")
@@ -266,11 +303,19 @@ class MoomooClient:
                     code=option_code,
                     underlying="SPX",
                     strike_price=float(row.get("strike_price", 0)),
-                    option_type=OptionType.CALL if row.get("option_type") == "CALL" else OptionType.PUT,
+                    option_type=OptionType.CALL
+                    if row.get("option_type") == "CALL"
+                    else OptionType.PUT,
                     expiration=date.today(),  # Would need to parse from code
-                    bid=float(row.get("bid_price", 0)) if row.get("bid_price") else None,
-                    ask=float(row.get("ask_price", 0)) if row.get("ask_price") else None,
-                    last=float(row.get("last_price", 0)) if row.get("last_price") else None,
+                    bid=float(row.get("bid_price", 0))
+                    if row.get("bid_price")
+                    else None,
+                    ask=float(row.get("ask_price", 0))
+                    if row.get("ask_price")
+                    else None,
+                    last=float(row.get("last_price", 0))
+                    if row.get("last_price")
+                    else None,
                     volume=int(row.get("volume", 0)) if row.get("volume") else None,
                 )
             else:

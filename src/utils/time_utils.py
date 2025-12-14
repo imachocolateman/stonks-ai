@@ -104,7 +104,9 @@ def minutes_to_close(dt: datetime | None = None) -> int:
 
     settings = get_settings()
     close_time = _parse_time(settings.market_close)
-    close_dt = dt.replace(hour=close_time.hour, minute=close_time.minute, second=0, microsecond=0)
+    close_dt = dt.replace(
+        hour=close_time.hour, minute=close_time.minute, second=0, microsecond=0
+    )
 
     if dt >= close_dt:
         return 0
@@ -124,7 +126,9 @@ def minutes_to_exit_deadline(dt: datetime | None = None) -> int:
 
     settings = get_settings()
     deadline = _parse_time(settings.exit_deadline)
-    deadline_dt = dt.replace(hour=deadline.hour, minute=deadline.minute, second=0, microsecond=0)
+    deadline_dt = dt.replace(
+        hour=deadline.hour, minute=deadline.minute, second=0, microsecond=0
+    )
 
     if dt >= deadline_dt:
         return 0
