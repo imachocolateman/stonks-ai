@@ -139,6 +139,125 @@ def info():
     )
 
 
+# ============================================================
+# 0DTE Trading Bot Commands
+# ============================================================
+
+
+@cli.command()
+@click.option("--host", "-h", default=None, help="Host to bind (default from env)")
+@click.option("--port", "-p", default=None, type=int, help="Port to bind (default from env)")
+@click.option("--reload", is_flag=True, help="Enable auto-reload for development")
+def serve(host, port, reload):
+    """Start the webhook server for TradingView alerts."""
+    import uvicorn
+
+    from src.server import app
+
+    settings = get_settings()
+    logger = get_logger(__name__)
+
+    host = host or settings.webhook_host
+    port = port or settings.webhook_port
+
+    console.print("\n[bold cyan]Starting SPX 0DTE Trading Bot Server[/bold cyan]\n")
+    console.print(f"  Host: [green]{host}[/green]")
+    console.print(f"  Port: [green]{port}[/green]")
+    console.print(f"  Trading Env: [green]{settings.moomoo_trading_env}[/green]")
+    console.print(f"  Passphrase: [green]{'Configured' if settings.webhook_passphrase else 'NOT SET'}[/green]")
+    console.print(f"\n  Webhook URL: [cyan]http://{host}:{port}/webhook/signal[/cyan]")
+    console.print("[dim]Press Ctrl+C to stop[/dim]\n")
+
+    logger.info(f"Starting webhook server on {host}:{port}")
+
+    uvicorn.run(
+        "src.server:app" if reload else app,
+        host=host,
+        port=port,
+        reload=reload,
+        log_level="info",
+    )
+
+
+@cli.command("test-moomoo")
+def test_moomoo():
+    """Test Moomoo OpenD and yfinance connections."""
+    from src.data.moomoo_client import MoomooClient
+
+    settings = get_settings()
+
+    console.print("\n[bold cyan]Testing Data Connections[/bold cyan]\n")
+
+    client = MoomooClient()
+    result = client.test_connection()
+
+    # SPX Price (via yfinance)
+    console.print("[bold]SPX Index (yfinance):[/bold]")
+    if result["spx_price"]:
+        console.print(f"  [green]✓[/green] SPX Price: [green]${result['spx_price']:,.2f}[/green]")
+    else:
+        console.print(f"  [red]✗[/red] Could not fetch SPX price")
+
+    # Moomoo (for options)
+    console.print("\n[bold]Moomoo OpenD (options):[/bold]")
+    console.print(f"  Host: {settings.moomoo_host}:{settings.moomoo_port}")
+    console.print(f"  Trading Env: {settings.moomoo_trading_env}")
+    if result["moomoo_connected"]:
+        console.print(f"  [green]✓ Connected[/green]")
+    else:
+        console.print(f"  [red]✗ Not connected[/red]")
+        console.print("\n[dim]Make sure Moomoo OpenD is running[/dim]")
+
+    if result["error"]:
+        console.print(f"\n[yellow]Warnings: {result['error']}[/yellow]")
+
+
+@cli.command("session")
+def session_status():
+    """Show current trading session status."""
+    from rich.panel import Panel
+
+    from src.utils.time_utils import get_phase_description, get_session_info
+
+    info = get_session_info()
+
+    # Color based on session phase
+    phase_colors = {
+        "prime_time": "green",
+        "mid_session": "cyan",
+        "lunch_doldrums": "yellow",
+        "danger_zone": "red",
+        "pre_market": "dim",
+        "after_hours": "dim",
+    }
+    color = phase_colors.get(info["session_phase"], "white")
+
+    table = Table(show_header=False, box=None, padding=(0, 1))
+    table.add_column("Label", style="cyan")
+    table.add_column("Value")
+
+    table.add_row("Current Time", f"[bold]{info['current_time_et']}[/bold]")
+    table.add_row("Session Phase", f"[{color}]{info['session_phase'].upper()}[/{color}]")
+    table.add_row("Trading Allowed", "[green]Yes[/green]" if info["trading_allowed"] else f"[red]No - {info['reason']}[/red]")
+    table.add_row("Minutes to Exit", str(info["minutes_to_exit_deadline"]))
+    table.add_row("Minutes to Close", str(info["minutes_to_close"]))
+    table.add_row("0DTE Day", "[green]Yes[/green]" if info["is_0dte_day"] else "[dim]No[/dim]")
+    table.add_row("Day", info["weekday"])
+
+    from src.utils.time_utils import SessionPhase
+
+    phase_enum = SessionPhase(info["session_phase"])
+    description = get_phase_description(phase_enum)
+
+    panel = Panel(
+        table,
+        title="[bold]Trading Session Status[/bold]",
+        subtitle=f"[dim]{description}[/dim]",
+        border_style=color,
+    )
+    console.print(panel)
+
+
 def main():
     """Main entry point."""
     try:

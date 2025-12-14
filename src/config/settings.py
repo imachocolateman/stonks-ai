@@ -14,9 +14,33 @@ class Settings:
     """Application settings loaded from environment variables."""
 
     def __init__(self):
-        # Moomoo API Configuration
+        # Moomoo API Configuration (legacy)
         self.moomoo_api_key: str = os.getenv("MOOMOO_API_KEY", "")
         self.moomoo_api_secret: str = os.getenv("MOOMOO_API_SECRET", "")
+
+        # Moomoo OpenD Configuration
+        self.moomoo_host: str = os.getenv("MOOMOO_HOST", "127.0.0.1")
+        self.moomoo_port: int = int(os.getenv("MOOMOO_PORT", "11111"))
+        self.moomoo_trading_env: str = os.getenv("MOOMOO_TRADING_ENV", "SIMULATE")
+
+        # Webhook Configuration
+        self.webhook_host: str = os.getenv("WEBHOOK_HOST", "0.0.0.0")
+        self.webhook_port: int = int(os.getenv("WEBHOOK_PORT", "8000"))
+        self.webhook_passphrase: str = os.getenv("WEBHOOK_PASSPHRASE", "")
+
+        # Trading Configuration
+        self.account_size: float = float(os.getenv("ACCOUNT_SIZE", "25000"))
+        self.max_risk_per_trade: float = float(os.getenv("MAX_RISK_PER_TRADE", "0.02"))
+        self.max_daily_risk: float = float(os.getenv("MAX_DAILY_RISK", "0.03"))
+        self.default_target_delta: float = float(os.getenv("DEFAULT_TARGET_DELTA", "0.25"))
+
+        # Session Timing (EST)
+        self.market_open: str = "09:30"
+        self.market_close: str = "16:00"
+        self.prime_time_end: str = "11:00"
+        self.lunch_end: str = "13:30"
+        self.danger_zone_start: str = "15:30"
+        self.exit_deadline: str = "15:45"
 
         # News API Configuration
         self.news_api_key: Optional[str] = os.getenv("NEWS_API_KEY")

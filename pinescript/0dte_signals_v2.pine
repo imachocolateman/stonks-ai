@@ -1,0 +1,225 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © ImAChocolateMan
+// Enhanced version with webhook integration for 0DTE Trading Bot
+
+//@version=6
+indicator("0DTE Entry Signals v2", overlay=true)
+
+// ============================================================
+// INPUTS
+// ============================================================
+
+// Timeframe settings
+higher_tf = input.timeframe("5", title="Higher Timeframe for RSI")
+
+// Session filter (EST times)
+use_session_filter = input.bool(true, title="Filter by Trading Session")
+session_start = input.session("0930-1100", title="Prime Time Session")
+session_mid = input.session("1330-1530", title="Mid Session")
+
+// Webhook passphrase (set this to match your bot config)
+webhook_passphrase = input.string("your_passphrase", title="Webhook Passphrase")
+
+// Signal toggles
+show_rsi_signals = input.bool(true, title="Show RSI Signals")
+show_rubberband = input.bool(true, title="Show Rubberband Signals")
+show_shooting_star = input.bool(true, title="Show Shooting Star")
+show_v_dip = input.bool(true, title="Show V-Dip Signals")
+show_pivot_signals = input.bool(true, title="Show Pivot Signals")
+show_vwap_signals = input.bool(true, title="Show VWAP Signals")
+
+// ============================================================
+// BASIC CALCULATIONS
+// ============================================================
+
+greenCandle = close > open
+redCandle = open > close
+lowestBar = ta.lowest(15)
+highestBar = ta.highest(5)
+
+// Candle components
+bodySize = math.abs(close - open)
+upperWick = high - math.max(close, open)
+lowerWick = math.min(close, open) - low
+totalRange = high - low
+
+// ============================================================
+// INDICATORS
+// ============================================================
+
+// RSI
+rsi = ta.rsi(close, 14)
+rsi_higher_tf = request.security(syminfo.tickerid, higher_tf, rsi)
+
+// Moving Averages
+sma200 = ta.sma(close, 200)
+ema20 = ta.ema(close, 20)
+
+// VWAP
+vwap_val = ta.vwap(close)
+vwap_distance = ((close - vwap_val) / vwap_val) * 100
+
+// ============================================================
+// PIVOT POINTS (Daily)
+// ============================================================
+
+// Get previous day's high, low, close
+prev_high = request.security(syminfo.tickerid, "D", high[1], lookahead=barmerge.lookahead_on)
+prev_low = request.security(syminfo.tickerid, "D", low[1], lookahead=barmerge.lookahead_on)
+prev_close = request.security(syminfo.tickerid, "D", close[1], lookahead=barmerge.lookahead_on)
+
+// Calculate pivot points
+pivot_pp = (prev_high + prev_low + prev_close) / 3
+pivot_r1 = (2 * pivot_pp) - prev_low
+pivot_r2 = pivot_pp + (prev_high - prev_low)
+pivot_s1 = (2 * pivot_pp) - prev_high
+pivot_s2 = pivot_pp - (prev_high - prev_low)
+
+// Distance to nearest pivot
+dist_to_s1 = math.abs(close - pivot_s1)
+dist_to_s2 = math.abs(close - pivot_s2)
+dist_to_r1 = math.abs(close - pivot_r1)
+dist_to_r2 = math.abs(close - pivot_r2)
+
+// Determine nearest pivot level
+at_pivot_s1 = dist_to_s1 < (totalRange * 2)
+at_pivot_s2 = dist_to_s2 < (totalRange * 2)
+at_pivot_r1 = dist_to_r1 < (totalRange * 2)
+at_pivot_r2 = dist_to_r2 < (totalRange * 2)
+
+pivot_level = at_pivot_s1 ? "S1" : at_pivot_s2 ? "S2" : at_pivot_r1 ? "R1" : at_pivot_r2 ? "R2" : "none"
+
+// Plot pivot levels
+plot(pivot_pp, color=color.gray, linewidth=1, title="Pivot PP")
+plot(pivot_r1, color=color.red, linewidth=1, title="Pivot R1")
+plot(pivot_r2, color=color.red, linewidth=1, style=plot.style_circles, title="Pivot R2")
+plot(pivot_s1, color=color.green, linewidth=1, title="Pivot S1")
+plot(pivot_s2, color=color.green, linewidth=1, style=plot.style_circles, title="Pivot S2")
+
+// ============================================================
+// SESSION FILTER
+// ============================================================
+
+in_prime_time = time(timeframe.period, session_start, "America/New_York")
+in_mid_session = time(timeframe.period, session_mid, "America/New_York")
+in_trading_session = in_prime_time or in_mid_session
+session_ok = not use_session_filter or in_trading_session
+
+// ============================================================
+// SIGNAL PATTERNS
+// ============================================================
+
+// --- Shooting Star (Bearish) ---
+upperWickRatio = upperWick / totalRange
+bodyRatio = bodySize / totalRange
+lowerWickRatio = lowerWick / totalRange
+isShootingStar = upperWickRatio > 0.6 and bodyRatio < 0.2 and lowerWickRatio < 0.15 and (high >= highestBar)
+
+// --- RSI Strategies ---
+RSI_Long = rsi < 20 and session_ok
+RSI_Short = rsi > 80 and rsi_higher_tf > 70 and session_ok
+
+// --- Rubberband Scalp ---
+Rband_long = greenCandle and redCandle[1] and redCandle[2] and redCandle[3] and (high > high[1]) and (high > high[2]) and (close < sma200) and session_ok
+Rband_short = redCandle and greenCandle[1] and greenCandle[2] and greenCandle[3] and (low < low[1]) and (close < low[2]) and (open > sma200) and session_ok
+
+// --- V-Dip Pattern ---
+// Detect sharp drop followed by reversal
+drop_pct = (high[3] - low) / high[3] * 100
+is_v_bottom = drop_pct >= 0.5 and redCandle[2] and redCandle[1] and greenCandle and (close > high[1]) and (rsi < 35)
+V_Dip_Long = is_v_bottom and (at_pivot_s1 or at_pivot_s2 or close < vwap_val) and session_ok
+
+// --- Pivot Support Bounce ---
+pivot_bounce_s1 = low <= pivot_s1 and close > pivot_s1 and greenCandle and rsi < 40 and session_ok
+pivot_bounce_s2 = low <= pivot_s2 and close > pivot_s2 and greenCandle and rsi < 35 and session_ok
+Pivot_Support = (pivot_bounce_s1 or pivot_bounce_s2) and session_ok
+
+// --- VWAP Bounce ---
+vwap_cross_up = ta.crossover(close, vwap_val)
+VWAP_Bounce = vwap_cross_up and rsi < 40 and session_ok
+
+// ============================================================
+// PLOT SIGNALS
+// ============================================================
+
+// Long Signals
+plotshape(show_rsi_signals and RSI_Long, style=shape.labelup, location=location.belowbar, color=color.green, text="RSI", title="RSI Oversold")
+plotshape(show_rubberband and Rband_long, style=shape.arrowup, location=location.belowbar, color=color.lime, text="RB", textcolor=color.white, title="Rubberband Long")
+plotshape(show_v_dip and V_Dip_Long, style=shape.triangleup, location=location.belowbar, color=color.teal, text="V", textcolor=color.white, title="V-Dip Long")
+plotshape(show_pivot_signals and Pivot_Support, style=shape.diamond, location=location.belowbar, color=color.blue, text="P", textcolor=color.white, title="Pivot Support")
+plotshape(show_vwap_signals and VWAP_Bounce, style=shape.circle, location=location.belowbar, color=color.purple, text="VW", textcolor=color.white, title="VWAP Bounce")
+
+// Short Signals
+plotshape(show_rsi_signals and RSI_Short, style=shape.labeldown, location=location.abovebar, color=color.red, text="RSI", title="RSI Overbought")
+plotshape(show_rubberband and Rband_short, style=shape.arrowdown, location=location.abovebar, color=color.red, text="RB", textcolor=color.white, title="Rubberband Short")
+plotshape(show_shooting_star and isShootingStar, style=shape.triangledown, location=location.abovebar, color=color.orange, text="SS", textcolor=color.white, title="Shooting Star")
+
+// ============================================================
+// ALERT CONDITIONS WITH WEBHOOK JSON
+// ============================================================
+
+// Helper function to create JSON payload
+// Note: TradingView placeholders will be substituted when alert fires
+
+// Long alerts
+alertcondition(RSI_Long, title="RSI Oversold Long", message='{"passphrase": "{{plot("passphrase")}}", "ticker": "{{ticker}}", "signal_type": "rsi_oversold_long", "action": "buy", "price": {{close}}, "time": "{{timenow}}", "interval": "{{interval}}", "rsi": {{plot("RSI")}}, "volume": {{volume}}, "pivot_level": "{{plot("pivot_level")}}", "vwap_distance": {{plot("VWAP_Dist")}}}')
+
+alertcondition(Rband_long, title="Rubberband Long", message='{"passphrase": "{{plot("passphrase")}}", "ticker": "{{ticker}}", "signal_type": "rubberband_long", "action": "buy", "price": {{close}}, "time": "{{timenow}}", "interval": "{{interval}}", "rsi": {{plot("RSI")}}, "volume": {{volume}}}')
+
+alertcondition(V_Dip_Long, title="V-Dip Long", message='{"passphrase": "{{plot("passphrase")}}", "ticker": "{{ticker}}", "signal_type": "v_dip_long", "action": "buy", "price": {{close}}, "time": "{{timenow}}", "interval": "{{interval}}", "rsi": {{plot("RSI")}}, "volume": {{volume}}, "pivot_level": "{{plot("pivot_level")}}", "vwap_distance": {{plot("VWAP_Dist")}}}')
+
+alertcondition(Pivot_Support, title="Pivot Support", message='{"passphrase": "{{plot("passphrase")}}", "ticker": "{{ticker}}", "signal_type": "pivot_support", "action": "buy", "price": {{close}}, "time": "{{timenow}}", "interval": "{{interval}}", "rsi": {{plot("RSI")}}, "volume": {{volume}}, "pivot_level": "{{plot("pivot_level")}}"}')
+
+alertcondition(VWAP_Bounce, title="VWAP Bounce", message='{"passphrase": "{{plot("passphrase")}}", "ticker": "{{ticker}}", "signal_type": "vwap_bounce", "action": "buy", "price": {{close}}, "time": "{{timenow}}", "interval": "{{interval}}", "rsi": {{plot("RSI")}}, "volume": {{volume}}, "vwap_distance": {{plot("VWAP_Dist")}}}')
+
+// Short alerts
+alertcondition(RSI_Short, title="RSI Overbought Short", message='{"passphrase": "{{plot("passphrase")}}", "ticker": "{{ticker}}", "signal_type": "rsi_overbought_short", "action": "sell", "price": {{close}}, "time": "{{timenow}}", "interval": "{{interval}}", "rsi": {{plot("RSI")}}, "rsi_htf": {{plot("RSI_HTF")}}, "volume": {{volume}}}')
+
+alertcondition(Rband_short, title="Rubberband Short", message='{"passphrase": "{{plot("passphrase")}}", "ticker": "{{ticker}}", "signal_type": "rubberband_short", "action": "sell", "price": {{close}}, "time": "{{timenow}}", "interval": "{{interval}}", "rsi": {{plot("RSI")}}, "volume": {{volume}}}')
+
+alertcondition(isShootingStar, title="Shooting Star", message='{"passphrase": "{{plot("passphrase")}}", "ticker": "{{ticker}}", "signal_type": "shooting_star", "action": "sell", "price": {{close}}, "time": "{{timenow}}", "interval": "{{interval}}", "volume": {{volume}}}')
+
+// Combined alerts
+any_long = RSI_Long or Rband_long or V_Dip_Long or Pivot_Support or VWAP_Bounce
+any_short = RSI_Short or Rband_short or isShootingStar
+
+alertcondition(any_long, title="Any Long Signal", message="Long signal detected - check chart")
+alertcondition(any_short, title="Any Short Signal", message="Short signal detected - check chart")
+
+// ============================================================
+// PLOT HELPER VALUES FOR ALERTS
+// ============================================================
+
+// These plots are hidden but allow us to reference values in alert messages
+plot(rsi, title="RSI", display=display.none)
+plot(rsi_higher_tf, title="RSI_HTF", display=display.none)
+plot(vwap_distance, title="VWAP_Dist", display=display.none)
+
+// Pivot level as string (workaround - plot numeric code)
+pivot_code = at_pivot_s1 ? 1 : at_pivot_s2 ? 2 : at_pivot_r1 ? 3 : at_pivot_r2 ? 4 : 0
+plot(pivot_code, title="pivot_level", display=display.none)
+
+// Passphrase placeholder
+plot(0, title="passphrase", display=display.none)
+
+// ============================================================
+// TABLE - Session & Status Info
+// ============================================================
+
+var table info_table = table.new(position.top_right, 2, 5, bgcolor=color.new(color.black, 80))
+
+if barstate.islast
+    session_text = in_prime_time ? "PRIME TIME" : in_mid_session ? "MID SESSION" : "OUTSIDE"
+    session_color = in_prime_time ? color.green : in_mid_session ? color.blue : color.gray
+
+    table.cell(info_table, 0, 0, "Session", text_color=color.white, text_size=size.small)
+    table.cell(info_table, 1, 0, session_text, text_color=session_color, text_size=size.small)
+
+    table.cell(info_table, 0, 1, "RSI", text_color=color.white, text_size=size.small)
+    table.cell(info_table, 1, 1, str.tostring(rsi, "#.0"), text_color=rsi < 30 ? color.green : rsi > 70 ? color.red : color.white, text_size=size.small)
+
+    table.cell(info_table, 0, 2, "VWAP Dist", text_color=color.white, text_size=size.small)
+    table.cell(info_table, 1, 2, str.tostring(vwap_distance, "#.2") + "%", text_color=vwap_distance < 0 ? color.green : color.red, text_size=size.small)
+
+    table.cell(info_table, 0, 3, "Pivot", text_color=color.white, text_size=size.small)
+    table.cell(info_table, 1, 3, pivot_level, text_color=color.yellow, text_size=size.small)
