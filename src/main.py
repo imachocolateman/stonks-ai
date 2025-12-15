@@ -186,7 +186,9 @@ def serve(host, port, reload):
 @cli.command("test-moomoo")
 def test_moomoo():
     """Test Moomoo OpenD and yfinance connections."""
+    import asyncio
     from src.data.moomoo_client import MoomooClient
+    from src.execution.executor import MoomooExecutor
 
     settings = get_settings()
 
@@ -216,6 +218,25 @@ def test_moomoo():
 
     if result["error"]:
         console.print(f"\n[yellow]Warnings: {result['error']}[/yellow]")
+
+    # Moomoo (for trading)
+    executor = MoomooExecutor()
+    trade_result = asyncio.run(executor.test_connection())
+
+    console.print("\n[bold]Moomoo OpenD (Trading/Simulation):[/bold]")
+    if trade_result["connected"]:
+        console.print("  [green]✓ Connected[/green]")
+        if "account" in trade_result and trade_result["account"]:
+            acc = trade_result["account"]
+            console.print(f"  Cash: [green]${acc.get('cash', 0):,.2f}[/green]")
+            console.print(
+                f"  Buying Power: [green]${acc.get('available_funds', 0):,.2f}[/green]"
+            )
+    else:
+        console.print("  [red]✗ Not connected[/red]")
+        if trade_result["error"]:
+            console.print(f"  [dim]Error: {trade_result['error']}[/dim]")
+
 
 
 @cli.command("session")

@@ -43,6 +43,11 @@ MAX_POSITIONS=2
 # Execution
 EXECUTION_ENABLED=true        # Enable order creation
 AUTO_EXIT_ENABLED=true        # Auto-close at 3:45 PM
+
+# Optional Features
+ANTHROPIC_API_KEY=your_key    # For LLM analysis
+NEWS_API_KEY=your_key         # For sentiment analysis
+DATABASE_URL=sqlite:///stonks.db # Persistence
 ```
 
 ### Run
@@ -148,6 +153,9 @@ uv run python -m src.main session      # Show session status
 uv run python -m src.main test-moomoo  # Test Moomoo connection
 uv run python -m src.main config       # Show current config
 uv run python -m src.main info         # System info
+uv run python -m src.main analyze      # Analyze stocks (stub)
+uv run python -m src.main monitor      # Monitor stock (stub)
+uv run python -m src.main sentiment    # Analyze sentiment (stub)
 ```
 
 ## Project Structure

@@ -262,12 +262,19 @@ class MoomooExecutor:
 
             if ret == RET_OK and not data.empty:
                 row = data.iloc[0]
+                
+                def safe_float(val):
+                    try:
+                        return float(val)
+                    except (ValueError, TypeError):
+                        return 0.0
+
                 return {
-                    "cash": float(row.get("cash", 0)),
-                    "total_assets": float(row.get("total_assets", 0)),
-                    "market_val": float(row.get("market_val", 0)),
-                    "frozen_cash": float(row.get("frozen_cash", 0)),
-                    "available_funds": float(row.get("available_funds", 0)),
+                    "cash": safe_float(row.get("cash")),
+                    "total_assets": safe_float(row.get("total_assets")),
+                    "market_val": safe_float(row.get("market_val")),
+                    "frozen_cash": safe_float(row.get("frozen_cash")),
+                    "available_funds": safe_float(row.get("available_funds")),
                 }
             return None
 
@@ -275,7 +282,7 @@ class MoomooExecutor:
             self.logger.error(f"Error getting account balance: {e}")
             return None
 
-    def test_connection(self) -> dict:
+    async def test_connection(self) -> dict:
         """Test trade API connection and return status."""
         result = {
             "connected": False,
@@ -290,7 +297,7 @@ class MoomooExecutor:
                 result["connected"] = True
 
                 # Try to get account info
-                balance = self.get_account_balance()
+                balance = await self.get_account_balance()
                 if balance:
                     result["account"] = balance
             else:

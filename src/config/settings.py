@@ -57,6 +57,12 @@ class Settings:
         # News API Configuration
         self.news_api_key: Optional[str] = os.getenv("NEWS_API_KEY")
 
+        # LLM Configuration (Claude API)
+        self.anthropic_api_key: Optional[str] = os.getenv("ANTHROPIC_API_KEY")
+        self.llm_model: str = os.getenv("LLM_MODEL", "claude-sonnet-4-20250514")
+        self.llm_max_tokens: int = int(os.getenv("LLM_MAX_TOKENS", "1024"))
+        self.llm_enabled: bool = os.getenv("LLM_ENABLED", "true").lower() == "true"
+
         # Database Configuration
         self.database_url: str = os.getenv("DATABASE_URL", "sqlite:///stonks.db")
 

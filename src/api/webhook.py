@@ -56,11 +56,16 @@ async def receive_signal(
         logger.error("Moomoo client not available")
         raise HTTPException(status_code=503, detail="Trading service unavailable")
 
-    # Get order manager from app state
+    # Get order manager and position tracker from app state
     order_manager = getattr(request.app.state, "order_manager", None)
+    position_tracker = getattr(request.app.state, "position_tracker", None)
 
     # Process signal in background
-    processor = SignalProcessor(moomoo, order_manager=order_manager)
+    processor = SignalProcessor(
+        moomoo,
+        order_manager=order_manager,
+        position_tracker=position_tracker,
+    )
     background_tasks.add_task(processor.process, signal)
 
     return WebhookResponse(
@@ -107,6 +112,20 @@ async def test_webhook(request: Request):
 # Order management endpoints
 
 
+def _serialize_llm_analysis(analysis):
+    """Serialize LLM analysis for API response."""
+    if not analysis:
+        return None
+    return {
+        "id": analysis.id,
+        "type": analysis.analysis_type.value,
+        "recommendation": analysis.recommendation,
+        "confidence": analysis.confidence_score,
+        "reasoning": analysis.reasoning,
+        "latency_ms": analysis.latency_ms,
+    }
+
+
 @router.get("/orders")
 async def list_orders(request: Request):
     """List all orders."""
@@ -124,11 +143,66 @@ async def list_orders(request: Request):
                 "quantity": o.quantity,
                 "limit_price": o.limit_price,
                 "created_at": o.created_at.isoformat(),
+                "llm_signal": _serialize_llm_analysis(o.signal_analysis),
+                "llm_approval": _serialize_llm_analysis(o.approval_analysis),
             }
             for o in order_manager.orders
         ],
         "pending_approval": len(order_manager.pending_approval),
         "active": len(order_manager.active_orders),
+    }
+
+
+@router.get("/orders/{order_id}")
+async def get_order(order_id: str, request: Request):
+    """Get order details including LLM analysis."""
+    order_manager = getattr(request.app.state, "order_manager", None)
+    if not order_manager:
+        raise HTTPException(status_code=503, detail="Order manager not available")
+
+    order = order_manager.get_order(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    # Full LLM analysis details
+    signal_detail = None
+    if order.signal_analysis and order.signal_analysis.signal_analysis:
+        sa = order.signal_analysis.signal_analysis
+        signal_detail = {
+            "quality_score": sa.quality_score,
+            "recommended_delta": sa.recommended_delta,
+            "confidence_adjustment": sa.confidence_adjustment,
+            "reasoning": sa.reasoning,
+            "risk_factors": sa.risk_factors,
+            "conflicting_signals": sa.conflicting_signals,
+        }
+
+    approval_detail = None
+    if order.approval_analysis and order.approval_analysis.approval_analysis:
+        aa = order.approval_analysis.approval_analysis
+        approval_detail = {
+            "recommendation": aa.recommendation,
+            "confidence": aa.confidence,
+            "reasoning": aa.reasoning,
+            "risk_summary": aa.risk_summary,
+            "daily_risk_status": aa.daily_risk_status,
+            "position_context": aa.position_context,
+        }
+
+    return {
+        "order_id": order.order_id,
+        "status": order.status.value,
+        "option_code": order.option_code,
+        "strike": order.strike,
+        "trade_type": order.trade_type.value,
+        "side": order.side.value,
+        "quantity": order.quantity,
+        "limit_price": order.limit_price,
+        "target_price": order.target_price,
+        "stop_loss_price": order.stop_loss_price,
+        "created_at": order.created_at.isoformat(),
+        "llm_signal_analysis": signal_detail,
+        "llm_approval_analysis": approval_detail,
     }
 
 
@@ -139,15 +213,31 @@ async def approve_order(order_id: str, request: Request):
     if not order_manager:
         raise HTTPException(status_code=503, detail="Order manager not available")
 
+    order = order_manager.get_order(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    # Include LLM recommendation in response
+    llm_recommendation = None
+    if order.approval_analysis:
+        llm_recommendation = order.approval_analysis.recommendation
+
     if order_manager.approve_order(order_id):
         # Auto-submit if executor is available
-        order = order_manager.get_order(order_id)
-        if order and order_manager.executor:
+        if order_manager.executor:
             await order_manager.submit_order(order_id)
-            return {"status": "approved_and_submitted", "order_id": order_id}
-        return {"status": "approved", "order_id": order_id}
+            return {
+                "status": "approved_and_submitted",
+                "order_id": order_id,
+                "llm_recommendation": llm_recommendation,
+            }
+        return {
+            "status": "approved",
+            "order_id": order_id,
+            "llm_recommendation": llm_recommendation,
+        }
     else:
-        raise HTTPException(status_code=404, detail="Order not found or not pending")
+        raise HTTPException(status_code=404, detail="Order not pending approval")
 
 
 @router.post("/orders/{order_id}/reject")

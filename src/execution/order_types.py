@@ -1,12 +1,18 @@
 """Order and position data models."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from src.models.options import OptionType
 from src.models.suggestions import TradeSuggestion, TradeType
+
+if TYPE_CHECKING:
+    pass
 
 
 class OrderSide(str, Enum):
@@ -82,6 +88,10 @@ class Order:
     stop_order_id: str | None = None
     target_order_id: str | None = None
 
+    # LLM analysis (signal + approval)
+    signal_analysis: Any | None = None  # LLMAnalysis
+    approval_analysis: Any | None = None  # LLMAnalysis
+
     @property
     def is_filled(self) -> bool:
         return self.status == OrderStatus.FILLED
@@ -156,6 +166,9 @@ class Position:
     stop_order_id: str | None = None
     target_order_id: str | None = None
     suggestion_id: str | None = None
+
+    # LLM exit analysis history
+    exit_analyses: list[Any] = field(default_factory=list)  # list[LLMAnalysis]
 
     @property
     def is_open(self) -> bool:

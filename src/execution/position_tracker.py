@@ -14,6 +14,28 @@ from src.utils.time_utils import (
     minutes_to_exit_deadline,
 )
 
+# Import LLM exit evaluator lazily to avoid circular imports
+_evaluate_position = None
+
+
+def _noop_evaluate(*args, **kwargs):
+    """No-op fallback when LLM is not available."""
+    return None
+
+
+def _get_evaluate_position():
+    """Lazy import of evaluate_position to avoid circular imports."""
+    global _evaluate_position
+    if _evaluate_position is None:
+        try:
+            from src.llm.exit_evaluator import evaluate_position
+
+            _evaluate_position = evaluate_position
+        except ImportError:
+            _evaluate_position = _noop_evaluate
+    return _evaluate_position
+
+
 if TYPE_CHECKING:
     from src.execution.executor import MoomooExecutor
     from src.execution.order_manager import OrderManager
@@ -73,12 +95,58 @@ class PositionTracker:
                             f"EXIT DEADLINE: {mins}min - {len(positions)} positions"
                         )
 
+                # Run LLM exit evaluation on open positions
+                if self.settings.llm_enabled:
+                    await self._evaluate_positions_with_llm()
+
                 await asyncio.sleep(30)
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 self.logger.error(f"Monitor error: {e}")
                 await asyncio.sleep(5)
+
+    async def _evaluate_positions_with_llm(self) -> None:
+        """Evaluate open positions with LLM for exit recommendations."""
+        evaluate_position = _get_evaluate_position()
+        if not evaluate_position:
+            return
+
+        positions = self.order_manager.open_positions
+        if not positions:
+            return
+
+        for position in positions:
+            try:
+                # Run LLM evaluation (sync call, could be made async)
+                analysis = evaluate_position(
+                    position,
+                    current_price=None,  # TODO: Fetch current option price
+                    daily_pnl=self._daily_pnl,
+                )
+
+                if analysis:
+                    # Store analysis on position
+                    position.exit_analyses.append(analysis)
+
+                    # Log recommendation
+                    if analysis.exit_analysis:
+                        ea = analysis.exit_analysis
+                        if ea.should_exit:
+                            self.logger.warning(
+                                f"LLM EXIT SIGNAL: {position.position_id} | "
+                                f"method={ea.method} | urgency={ea.urgency}/10 | "
+                                f"{ea.reasoning}"
+                            )
+                        else:
+                            self.logger.info(
+                                f"LLM HOLD: {position.position_id} | {ea.reasoning}"
+                            )
+
+            except Exception as e:
+                self.logger.error(
+                    f"LLM exit evaluation failed for {position.position_id}: {e}"
+                )
 
     async def _execute_auto_exit(self) -> None:
         positions = self.order_manager.open_positions

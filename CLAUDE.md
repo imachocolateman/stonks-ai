@@ -19,6 +19,9 @@ uv run python -m src.main session      # Show trading session status
 uv run python -m src.main test-moomoo  # Test Moomoo connection
 uv run python -m src.main info         # System info
 uv run python -m src.main config       # View config
+uv run python -m src.main analyze      # Analyze stocks
+uv run python -m src.main monitor      # Monitor stock
+uv run python -m src.main sentiment    # Analyze sentiment
 
 # Code Quality
 uv run ruff check --fix .              # Lint and auto-fix
@@ -132,10 +135,15 @@ AUTO_EXIT_ENABLED=true            # Auto-close at 3:45 PM
 
 ### Optional
 ```bash
-NEWS_API_KEY=                     # For future sentiment analysis
-DATABASE_URL=sqlite:///stonks.db  # For future persistence
+NEWS_API_KEY=                     # For sentiment analysis
+DATABASE_URL=sqlite:///stonks.db  # For persistence
 ENVIRONMENT=development           # development or production
 LOG_LEVEL=INFO                    # DEBUG/INFO/WARNING/ERROR
+
+# LLM Configuration
+ANTHROPIC_API_KEY=                # For AI analysis
+LLM_MODEL=claude-sonnet-4-20250514
+LLM_ENABLED=true
 ```
 
 ## Session Timing (EST)
