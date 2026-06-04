@@ -239,6 +239,187 @@ def test_moomoo():
 
 
 
+@cli.command()
+@click.argument("symbols", nargs=-1)
+@click.option(
+    "--duration", "-d", default=0, type=int, help="Auto-stop after N seconds (0 = run forever)"
+)
+def stream(symbols, duration):
+    """Stream live ticks from Alpaca (IEX feed) and print 5s bars as they close.
+
+    SYMBOLS: codes like US.SPY US.QQQ (US. prefix is stripped for Alpaca).
+    If omitted, uses STREAMING_SYMBOLS env. SPX index isn't supported - use SPY proxy.
+    Requires ALPACA_API_KEY and ALPACA_API_SECRET in .env (free at alpaca.markets).
+    """
+    import asyncio
+
+    from src.data import AlpacaStreamingProvider, BarAggregator, TickSubscriber
+
+    settings = get_settings()
+    symbols_list = list(symbols) if symbols else settings.streaming_symbols
+
+    console.print(f"\n[bold cyan]Streaming live bars[/bold cyan] ({settings.bar_interval_seconds}s)")
+    console.print(f"Symbols: [green]{', '.join(symbols_list)}[/green]")
+    console.print("[dim]Press Ctrl+C to stop[/dim]\n")
+
+    async def run():
+        if not settings.alpaca_api_key or not settings.alpaca_api_secret:
+            console.print(
+                "[red]ALPACA_API_KEY / ALPACA_API_SECRET not set in .env[/red]\n"
+                "[dim]Sign up free at alpaca.markets, generate paper keys.[/dim]"
+            )
+            return
+        provider = AlpacaStreamingProvider(
+            api_key=settings.alpaca_api_key,
+            secret_key=settings.alpaca_api_secret,
+            feed=settings.alpaca_data_feed,
+        )
+        subscriber = TickSubscriber(provider, symbols_list)
+        aggregator = BarAggregator(
+            subscriber,
+            interval_seconds=settings.bar_interval_seconds,
+            maxlen=settings.bar_history_length,
+        )
+
+        def print_bar(symbol: str, bar):
+            console.print(
+                f"[dim]{bar.bucket_ts.strftime('%H:%M:%S')}[/dim]  "
+                f"[cyan]{symbol:<10}[/cyan]  "
+                f"O={bar.open:>9.2f}  H={bar.high:>9.2f}  L={bar.low:>9.2f}  "
+                f"C={bar.close:>9.2f}  V={bar.volume:>8}  ticks={bar.tick_count}"
+            )
+
+        aggregator.on_new_bar(print_bar)
+
+        try:
+            subscriber.start_monitoring()
+            aggregator.start_monitoring()
+            if duration > 0:
+                await asyncio.sleep(duration)
+            else:
+                await asyncio.Event().wait()  # forever
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            pass
+        finally:
+            aggregator.stop_monitoring()
+            subscriber.stop_monitoring()
+            console.print("\n[yellow]Stopped[/yellow]")
+            stats = subscriber.stats()
+            if any(stats["dropped"].values()):
+                console.print(f"[dim]Dropped ticks: {stats['dropped']}[/dim]")
+
+    try:
+        asyncio.run(run())
+    except KeyboardInterrupt:
+        pass
+
+
+@cli.command()
+@click.option(
+    "--duration", "-d", default=0, type=int, help="Auto-stop after N seconds (0 = run forever)"
+)
+def signals(duration):
+    """Full Phase 2 stack: stream + regime + per-symbol signals → recommendations.
+
+    Wires Alpaca streaming, slow yfinance polling (^VIX), SPX synthesizer,
+    regime monitor, and the recommendation combiner. Prints each Recommendation
+    as a bar closes.
+    """
+    import asyncio
+
+    from src.analysis.per_symbol_signals import Action
+    from src.analysis.recommendation import Recommendation, Recommender
+    from src.analysis.regime import RegimeMonitor
+    from src.data import AlpacaStreamingProvider, BarAggregator, TickSubscriber
+    from src.data.slow_poller import SlowPoller
+    from src.data.spx_synth import SPXSynthesizer
+
+    settings = get_settings()
+    symbols_list = settings.streaming_symbols
+
+    console.print(f"\n[bold cyan]Real-time signals stack[/bold cyan] ({settings.bar_interval_seconds}s bars)")
+    console.print(f"Streaming: [green]{', '.join(symbols_list)}[/green]")
+    console.print(f"Slow poll: [green]{', '.join(settings.slow_poll_symbols)}[/green]")
+    console.print("[dim]Press Ctrl+C to stop[/dim]\n")
+
+    async def run():
+        if not settings.alpaca_api_key or not settings.alpaca_api_secret:
+            console.print("[red]ALPACA_API_KEY / ALPACA_API_SECRET not set in .env[/red]")
+            return
+
+        provider = AlpacaStreamingProvider(
+            api_key=settings.alpaca_api_key,
+            secret_key=settings.alpaca_api_secret,
+            feed=settings.alpaca_data_feed,
+        )
+        subscriber = TickSubscriber(provider, symbols_list)
+        aggregator = BarAggregator(
+            subscriber,
+            interval_seconds=settings.bar_interval_seconds,
+            maxlen=settings.bar_history_length,
+        )
+        slow_poller = SlowPoller(
+            settings.slow_poll_symbols,
+            interval_seconds=settings.slow_poll_interval_seconds,
+        )
+        spx_synth = SPXSynthesizer(aggregator)
+        regime_monitor = RegimeMonitor(aggregator, slow_poller, spx_synth=spx_synth)
+        recommender = Recommender(aggregator, regime_monitor, spx_synth=spx_synth)
+
+        action_colors = {"BUY": "green", "SELL": "red", "HOLD": "dim"}
+        regime_colors = {"bullish": "green", "bearish": "red", "neutral": "yellow"}
+
+        def print_rec(rec: Recommendation):
+            # Filter noise: only print HOLDs with at least one trigger fired
+            if rec.signal.action == Action.HOLD and rec.signal.score == 0 and not rec.signal.triggers:
+                return
+            ts = rec.timestamp.strftime("%H:%M:%S")
+            act = rec.signal.action.value
+            ac = action_colors.get(act, "white")
+            rc = regime_colors.get(rec.regime.value, "white")
+            price = f"{rec.price:>9.2f}" if rec.price is not None else "      n/a"
+            # Compact triggers: just first one, truncated
+            trig = rec.signal.triggers[0][:30] if rec.signal.triggers else ""
+            conflict = " [yellow]!conflict[/yellow]" if rec.conflicts_regime else ""
+            console.print(
+                f"[dim]{ts}[/dim] [cyan]{rec.symbol:<8}[/cyan] "
+                f"[{ac}]{act:<4}[/{ac}] s={rec.signal.strength:.1f} "
+                f"px={price} "
+                f"[{rc}]{rec.regime.value[:4]}[/{rc}]/{rec.regime_score:+d} "
+                f"[dim]{trig}[/dim]{conflict}"
+            )
+
+        recommender.on_recommendation(print_rec)
+
+        try:
+            subscriber.start_monitoring()
+            aggregator.start_monitoring()
+            slow_poller.start_monitoring()
+            spx_synth.start_monitoring()
+            regime_monitor.start_monitoring()
+            recommender.start_monitoring()
+            console.print("[dim](Waiting for first bars + indicator warmup — recs appear after ~30s)[/dim]\n")
+            if duration > 0:
+                await asyncio.sleep(duration)
+            else:
+                await asyncio.Event().wait()
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            pass
+        finally:
+            recommender.stop_monitoring()
+            regime_monitor.stop_monitoring()
+            spx_synth.stop_monitoring()
+            slow_poller.stop_monitoring()
+            aggregator.stop_monitoring()
+            subscriber.stop_monitoring()
+            console.print("\n[yellow]Stopped[/yellow]")
+
+    try:
+        asyncio.run(run())
+    except KeyboardInterrupt:
+        pass
+
+
 @cli.command("session")
 def session_status():
     """Show current trading session status."""
