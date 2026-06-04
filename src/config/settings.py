@@ -78,6 +78,39 @@ class Settings:
         self.default_tickers: list[str] = ["AAPL", "GOOGL", "MSFT", "TSLA"]
         self.refresh_interval: int = int(os.getenv("REFRESH_INTERVAL", "300"))
 
+        # Real-time streaming (Alpaca IEX free feed; Moomoo doesn't support US streaming)
+        # Note: US indices like SPX are NOT supported by Alpaca either - use SPY as proxy
+        self.streaming_symbols: list[str] = [
+            s.strip()
+            for s in os.getenv(
+                "STREAMING_SYMBOLS", "US.SPY,US.QQQ,US.IWM,US.VIXY,US.IGV"
+            ).split(",")
+            if s.strip()
+        ]
+        self.bar_interval_seconds: int = int(os.getenv("BAR_INTERVAL_SECONDS", "5"))
+        self.bar_history_length: int = int(os.getenv("BAR_HISTORY_LENGTH", "720"))
+
+        # Slow poller (yfinance) - 30s cadence for indices and sectors Alpaca can't stream
+        self.slow_poll_symbols: list[str] = [
+            s.strip()
+            for s in os.getenv(
+                "SLOW_POLL_SYMBOLS", "^VIX,^GSPC,XLF,XLE,XLK"
+            ).split(",")
+            if s.strip()
+        ]
+        self.slow_poll_interval_seconds: int = int(
+            os.getenv("SLOW_POLL_INTERVAL_SECONDS", "30")
+        )
+
+        # Regime classifier
+        self.regime_bullish_threshold: int = int(os.getenv("REGIME_BULLISH_THRESHOLD", "4"))
+        self.regime_bearish_threshold: int = int(os.getenv("REGIME_BEARISH_THRESHOLD", "-4"))
+
+        # Alpaca streaming
+        self.alpaca_api_key: str = os.getenv("ALPACA_API_KEY", "")
+        self.alpaca_api_secret: str = os.getenv("ALPACA_API_SECRET", "")
+        self.alpaca_data_feed: str = os.getenv("ALPACA_DATA_FEED", "iex")  # iex (free) | sip (paid)
+
         # Create necessary directories
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.models_dir.mkdir(parents=True, exist_ok=True)

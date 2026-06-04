@@ -1,5 +1,6 @@
 """Moomoo OpenD API client for options data."""
 
+from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any
 
@@ -10,11 +11,15 @@ from moomoo import (
     OptionType as MooOptionType,
     OpenQuoteContext,
     RET_OK,
+    StockQuoteHandlerBase,
+    SubType,
 )
 
 from src.config import get_settings
 from src.models.options import Greeks, OptionContract, OptionsChain, OptionType
 from src.utils.logger import get_logger
+
+TickCallback = Callable[[dict[str, Any]], None]
 
 
 class MoomooClient:
@@ -324,6 +329,81 @@ class MoomooClient:
         except Exception as e:
             self.logger.error(f"Error getting option quote: {e}")
             return None
+
+    # ------------------------------------------------------------------
+    # Streaming (real-time quote subscribe)
+    # ------------------------------------------------------------------
+
+    def start_streaming(
+        self,
+        symbols: list[str],
+        on_tick: TickCallback,
+    ) -> bool:
+        """Subscribe to real-time QUOTE updates for symbols.
+
+        Args:
+            symbols: Moomoo-format codes (e.g. ["US.SPX", "US.SPY", "US.QQQ"]).
+            on_tick: Callback invoked from a Moomoo SDK background thread for each
+                quote push. Receives a dict: {symbol, price, volume, timestamp, raw}.
+                MUST be thread-safe; bridge to asyncio with run_coroutine_threadsafe.
+
+        Returns:
+            True on success.
+        """
+        if not self._ensure_connected():
+            self.logger.error("Cannot start streaming - Moomoo not connected")
+            return False
+
+        client = self
+
+        class _Handler(StockQuoteHandlerBase):
+            def on_recv_rsp(self, rsp_pb):
+                ret_code, content = super().on_recv_rsp(rsp_pb)
+                if ret_code != RET_OK:
+                    client.logger.warning(f"Quote handler recv error: {content}")
+                    return ret_code, content
+                try:
+                    for _, row in content.iterrows():
+                        try:
+                            ts = datetime.strptime(
+                                f"{row['data_date']} {row['data_time']}",
+                                "%Y-%m-%d %H:%M:%S",
+                            )
+                        except (ValueError, TypeError, KeyError):
+                            ts = datetime.utcnow()
+                        on_tick({
+                            "symbol": row["code"],
+                            "price": float(row["last_price"]) if row["last_price"] else None,
+                            "volume": int(row["volume"]) if row["volume"] else 0,
+                            "timestamp": ts,
+                            "raw": row.to_dict(),
+                        })
+                except Exception as e:
+                    client.logger.exception(f"on_tick callback failed: {e}")
+                return ret_code, content
+
+        self._stream_handler = _Handler()
+        self._quote_ctx.set_handler(self._stream_handler)
+        ret, err = self._quote_ctx.subscribe(symbols, [SubType.QUOTE])
+        if ret != RET_OK:
+            self.logger.error(f"Subscribe failed: {err}")
+            return False
+        self._streamed_symbols = list(symbols)
+        self.logger.info(f"Streaming started for {symbols} (SubType.QUOTE)")
+        return True
+
+    def stop_streaming(self) -> None:
+        """Unsubscribe all symbols and clear handler."""
+        if not self._quote_ctx:
+            return
+        try:
+            if getattr(self, "_streamed_symbols", None):
+                self._quote_ctx.unsubscribe(self._streamed_symbols, [SubType.QUOTE])
+                self.logger.info(f"Streaming stopped for {self._streamed_symbols}")
+            self._streamed_symbols = []
+            self._stream_handler = None
+        except Exception as e:
+            self.logger.warning(f"Stop streaming error: {e}")
 
     def test_connection(self) -> dict:
         """Test connection and return status info."""

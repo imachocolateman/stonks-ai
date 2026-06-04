@@ -22,9 +22,11 @@ dependencies = [
     "ta-lib>=0.6.8",
     # LLM integration
     "anthropic>=0.40.0",
+    "alpaca-py>=0.43.4",
 ]
 
 [dependency-groups]
 dev = [
     "ipykernel>=7.1.0",
+    "pytest>=9.0.3",
 ]
